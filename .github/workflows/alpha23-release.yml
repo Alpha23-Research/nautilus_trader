@@ -1,0 +1,410 @@
+name: alpha23-release
+
+# Release on successful completion of the `build` workflow on the `master` branch
+
+on:
+  workflow_run:
+    workflows:
+      - alpha23-build
+    branches: [alpha23-develop]
+    types:
+      - completed
+
+jobs:
+  test-pip-install:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64]
+        os: [ubuntu-latest]
+        python-version: ["3.11"]
+    defaults:
+      run:
+        shell: bash
+    name: test-pip-install - Python ${{ matrix.python-version }} (${{ matrix.arch }} ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Free disk space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: false
+          dotnet: false
+          haskell: false
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Install runner dependencies
+        run: sudo apt-get install -y curl clang git libssl-dev make pkg-config
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get Rust version from rust-toolchain.toml
+        id: rust-version
+        run: |
+          version=$(awk -F\" '/version/ {print $2}' nautilus_core/rust-toolchain.toml)
+          echo "Rust toolchain version $version"
+          echo "RUST_VERSION=$version" >> $GITHUB_ENV
+        working-directory: ${{ github.workspace }}
+
+      - name: Set up Rust tool-chain (Linux, Windows) stable
+        uses: actions-rust-lang/setup-rust-toolchain@v1.8
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: rustfmt, clippy
+
+      - name: Set up Python environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Get Poetry version from poetry-version
+        run: |
+          version=$(cat poetry-version)
+          echo "POETRY_VERSION=$version" >> $GITHUB_ENV
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: ${{ env.POETRY_VERSION }}
+
+      - name: Install build dependencies
+        run: python -m pip install --upgrade pip setuptools wheel pre-commit msgspec
+
+      - name: Test pip installation
+        run: pip install .
+
+  tag-release:
+    needs: [test-pip-install]
+    name: tag-release - Python 3.11 (ubuntu-latest)
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create-release.outputs.upload_url }}
+
+    steps:
+      - name: Free disk space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: false
+          dotnet: false
+          haskell: false
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Install runner dependencies
+        run: sudo apt-get install -y curl clang git libssl-dev make pkg-config
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Get Rust version from rust-toolchain.toml
+        id: rust-version
+        run: |
+          version=$(awk -F\" '/version/ {print $2}' nautilus_core/rust-toolchain.toml)
+          echo "Rust toolchain version $version"
+          echo "RUST_VERSION=$version" >> $GITHUB_ENV
+        working-directory: ${{ github.workspace }}
+
+      - name: Set up Rust tool-chain
+        uses: actions-rust-lang/setup-rust-toolchain@v1.8
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: rustfmt, clippy
+
+      - name: Set up Python environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Get Poetry version from poetry-version
+        run: |
+          version=$(cat poetry-version)
+          echo "POETRY_VERSION=$version" >> $GITHUB_ENV
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: ${{ env.POETRY_VERSION }}
+
+      - name: Install build dependencies
+        run: python -m pip install --upgrade pip setuptools wheel pre-commit msgspec
+
+      - name: Set poetry cache-dir
+        run: echo "POETRY_CACHE_DIR=$(poetry config cache-dir)" >> $GITHUB_ENV
+
+      - name: Poetry cache
+        id: cached-poetry
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.POETRY_CACHE_DIR }}
+          key: ${{ runner.os }}-${{ matrix.python-version }}-poetry-${{ hashFiles('**/poetry.lock') }}
+
+      - name: Install
+        run: poetry install
+
+      - name: Create git tag
+        uses: salsify/action-detect-and-tag-new-version@v2
+        with:
+          version-command: poetry version --short
+
+      - name: Set output
+        id: vars
+        run: |
+          echo "TAG_NAME=v$(poetry version --short)" >> $GITHUB_ENV
+          echo "RELEASE_NAME=NautilusTrader $(poetry version --short) Beta" >> $GITHUB_ENV
+          sed -n '/^#/,${p;/^---/q};w RELEASE.md' RELEASES.md
+
+      - name: Create GitHub release
+        id: create-release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ env.TAG_NAME }}
+          release_name: ${{ env.RELEASE_NAME }}
+          draft: false
+          prerelease: false
+          body_path: RELEASE.md
+
+  publish-sdist:
+    needs: [tag-release]
+    name: publish-sdist - Python 3.11 (ubuntu-latest)
+    runs-on: ubuntu-latest
+    env:
+      COPY_TO_SOURCE: false # Do not copy built *.so files back into source tree
+
+    steps:
+      - name: Free disk space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: false
+          dotnet: false
+          haskell: false
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Install runner dependencies
+        run: sudo apt-get install -y curl clang git libssl-dev make pkg-config
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get Rust version from rust-toolchain.toml
+        id: rust-version
+        run: |
+          version=$(awk -F\" '/version/ {print $2}' nautilus_core/rust-toolchain.toml)
+          echo "Rust toolchain version $version"
+          echo "RUST_VERSION=$version" >> $GITHUB_ENV
+        working-directory: ${{ github.workspace }}
+
+      - name: Set up Rust tool-chain
+        uses: actions-rust-lang/setup-rust-toolchain@v1.8
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: rustfmt, clippy
+
+      - name: Set up Python environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Get Poetry version from poetry-version
+        run: |
+          version=$(cat poetry-version)
+          echo "POETRY_VERSION=$version" >> $GITHUB_ENV
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: ${{ env.POETRY_VERSION }}
+
+      - name: Install build dependencies
+        run: python -m pip install --upgrade pip setuptools wheel pre-commit msgspec
+
+      - name: Set poetry cache-dir
+        run: echo "POETRY_CACHE_DIR=$(poetry config cache-dir)" >> $GITHUB_ENV
+
+      - name: Poetry cache
+        id: cached-poetry
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.POETRY_CACHE_DIR }}
+          key: ${{ runner.os }}-${{ matrix.python-version }}-poetry-${{ hashFiles('**/poetry.lock') }}
+
+      - name: Install / Build
+        run: |
+          poetry install
+          poetry build --format sdist
+
+      - name: Set release output
+        id: vars
+        run: |
+          echo "ASSET_PATH=$(find ./dist -mindepth 1 -print -quit)" >> $GITHUB_ENV
+          cd dist
+          echo "ASSET_NAME=$(printf '%s\0' * | awk 'BEGIN{RS="\0"} {print;  exit}')" >> $GITHUB_ENV
+
+      #- name: Upload release asset
+      #  id: upload-release-asset
+      #  uses: actions/upload-release-asset@v1
+      #  env:
+      #    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      #  with:
+      #    upload_url: ${{ needs.tag-release.outputs.upload_url }}
+      #    asset_path: ${{ env.ASSET_PATH }}
+      #    asset_name: ${{ env.ASSET_NAME }}
+      #    asset_content_type: application/zip
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-1
+
+      - name: Fetch AWS CodeArtifact metadata
+        id: codeartifact-metadata
+        shell: bash
+        run: |
+          echo "codeartifact-token=$(aws codeartifact get-authorization-token --domain a23r --domain-owner 622371988550 --query authorizationToken --region ap-northeast-1 --output text)" >> $GITHUB_OUTPUT
+          echo "codeartifact-repo-url=$(aws codeartifact get-repository-endpoint --domain a23r --domain-owner 622371988550 --repository a23r-repo --format pypi --query repositoryEndpoint --output text)" >> $GITHUB_OUTPUT
+
+      - name: Configure poetry with AWS CodeArtifact login information
+        shell: bash
+        run: |
+            poetry config repositories.artifact ${{ steps.codeartifact-metadata.outputs.codeartifact-repo-url }}
+            poetry config http-basic.artifact aws ${{ steps.codeartifact-metadata.outputs.codeartifact-token }}
+
+      - name: Publish to AWS CodeArtifact
+        run: poetry publish --repository artifact
+
+  publish-wheels:
+    needs: [tag-release]
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64]
+        os: [ubuntu-latest]
+        python-version: ["3.11"]
+    defaults:
+      run:
+        shell: bash
+    name: publish-wheels - Python ${{ matrix.python-version }} (${{ matrix.arch }} ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    env:
+      BUILD_MODE: release
+
+    steps:
+      - name: Free disk space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: false
+          dotnet: false
+          haskell: false
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Install runner dependencies (Linux)
+        run: sudo apt-get install -y curl clang git libssl-dev make pkg-config
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get Rust version from rust-toolchain.toml
+        id: rust-version
+        run: |
+          version=$(awk -F\" '/version/ {print $2}' nautilus_core/rust-toolchain.toml)
+          echo "Rust toolchain version $version"
+          echo "RUST_VERSION=$version" >> $GITHUB_ENV
+        working-directory: ${{ github.workspace }}
+
+      - name: Set up Rust tool-chain (Linux, Windows) stable
+        uses: actions-rust-lang/setup-rust-toolchain@v1.8
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: rustfmt, clippy
+
+      - name: Set up Python environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Get Poetry version from poetry-version
+        run: |
+          version=$(cat poetry-version)
+          echo "POETRY_VERSION=$version" >> $GITHUB_ENV
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: ${{ env.POETRY_VERSION }}
+
+      - name: Install build dependencies
+        run: python -m pip install --upgrade pip setuptools wheel pre-commit msgspec
+
+      - name: Set poetry cache-dir
+        run: echo "POETRY_CACHE_DIR=$(poetry config cache-dir)" >> $GITHUB_ENV
+
+      - name: Poetry cache
+        id: cached-poetry
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.POETRY_CACHE_DIR }}
+          key: ${{ runner.os }}-${{ matrix.python-version }}-poetry-${{ hashFiles('**/poetry.lock') }}
+
+      - name: Install / Build
+        run: |
+          poetry install
+          poetry build --format wheel
+
+      - name: Set release output
+        id: vars
+        run: |
+          echo "ASSET_PATH=$(find ./dist -mindepth 1 -print -quit)" >> $GITHUB_ENV
+          cd dist
+          echo "ASSET_NAME=$(printf '%s\0' * | awk 'BEGIN{RS="\0"} {print;  exit}')" >> $GITHUB_ENV
+
+      #- name: Upload release asset
+      #  id: upload-release-asset-unix
+      #  uses: actions/upload-release-asset@v1
+      #  env:
+      #    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      #  with:
+      #    upload_url: ${{ needs.tag-release.outputs.upload_url }}
+      #    asset_path: ${{ env.ASSET_PATH }}
+      #    asset_name: ${{ env.ASSET_NAME }}
+      #    asset_content_type: application/wheel
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-1
+
+      - name: Fetch AWS CodeArtifact metadata
+        id: codeartifact-metadata
+        shell: bash
+        run: |
+          echo "codeartifact-token=$(aws codeartifact get-authorization-token --domain a23r --domain-owner 622371988550 --query authorizationToken --region ap-northeast-1 --output text)" >> $GITHUB_OUTPUT
+          echo "codeartifact-repo-url=$(aws codeartifact get-repository-endpoint --domain a23r --domain-owner 622371988550 --repository a23r-repo --format pypi --query repositoryEndpoint --output text)" >> $GITHUB_OUTPUT
+
+      - name: Configure poetry with AWS CodeArtifact login information
+        shell: bash
+        run: |
+            poetry config repositories.artifact ${{ steps.codeartifact-metadata.outputs.codeartifact-repo-url }}
+            poetry config http-basic.artifact aws ${{ steps.codeartifact-metadata.outputs.codeartifact-token }}
+
+      - name: Publish to AWS CodeArtifact
+        run: poetry publish --repository artifact

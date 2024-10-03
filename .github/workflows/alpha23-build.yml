@@ -139,6 +139,9 @@ jobs:
           RUSTC_WRAPPER: "sccache"
           CARGO_INCREMENTAL: 0
 
+      - name: Set up sccache cache
+        uses: mozilla-actions/sccache-action@v0.0.6
+
       - name: Run nautilus_core cargo tests (Linux)
         run: |
           if ! command -v cargo-nextest &> /dev/null
@@ -153,6 +156,9 @@ jobs:
           SCCACHE_GHA_ENABLED: "true"
           RUSTC_WRAPPER: "sccache"
           CARGO_INCREMENTAL: 0
+
+      - name: Set up sccache cache
+        uses: mozilla-actions/sccache-action@v0.0.6
 
       - name: Run tests (Linux)
         run: |

@@ -139,6 +139,10 @@ jobs:
           RUSTC_WRAPPER: "sccache"
           CARGO_INCREMENTAL: 0
 
+      - name: Run sccache stat for check
+        shell: bash
+        run: ${SCCACHE_PATH} --show-stats
+
       - name: Set up sccache cache
         uses: mozilla-actions/sccache-action@v0.0.6
 
@@ -157,6 +161,10 @@ jobs:
           RUSTC_WRAPPER: "sccache"
           CARGO_INCREMENTAL: 0
 
+      - name: Run sccache stat for check
+        shell: bash
+        run: ${SCCACHE_PATH} --show-stats
+
       - name: Set up sccache cache
         uses: mozilla-actions/sccache-action@v0.0.6
 
@@ -168,3 +176,7 @@ jobs:
           SCCACHE_GHA_ENABLED: "true"
           RUSTC_WRAPPER: "sccache"
           CARGO_INCREMENTAL: 0
+
+      - name: Run sccache stat for check
+        shell: bash
+        run: ${SCCACHE_PATH} --show-stats

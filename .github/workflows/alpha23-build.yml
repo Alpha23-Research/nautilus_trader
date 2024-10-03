@@ -44,17 +44,6 @@ jobs:
         options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
 
     steps:
-      #- name: Free disk space (Ubuntu)
-      #  uses: jlumbroso/free-disk-space@main
-      #  with:
-      #    tool-cache: true
-      #    android: false
-      #    dotnet: false
-      #    haskell: false
-      #    large-packages: true
-      #    docker-images: true
-      #    swap-storage: true
-
       - name: Install runner dependencies
         run: sudo apt-get install -y curl clang git libssl-dev make pkg-config
 
@@ -97,13 +86,6 @@ jobs:
 
       - name: Install build dependencies
         run: python -m pip install --upgrade pip setuptools wheel pre-commit msgspec
-
-      # ta-lib Python install currently broken
-      # https://github.com/TA-Lib/ta-lib-python/issues/655
-      # - name: Install TA-Lib (Linux)
-      #   run: |
-      #     make install-talib
-      #     poetry run pip install setuptools numpy==1.26.4 ta-lib
 
       - name: Set up cached pre-commit
         id: cached-pre-commit

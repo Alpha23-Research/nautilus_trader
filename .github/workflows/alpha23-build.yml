@@ -130,7 +130,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/sccache/
-          key: ${{ runner.os }}-sccache-{{ github.ref_name }}
+          key: ${{ runner.os }}-sccache-${{ github.ref_name }}
           restore-keys: ${{ runner.os }}-sccache-
 
       - name: Install Nautilus CLI and run init postgres

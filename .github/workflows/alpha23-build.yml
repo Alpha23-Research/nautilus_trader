@@ -20,7 +20,7 @@ jobs:
     name: build - Python ${{ matrix.python-version }} (${{ matrix.arch }} ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     env:
-      BUILD_MODE: debug
+      BUILD_MODE: release
       RUST_BACKTRACE: 1
 
     services:
@@ -122,8 +122,16 @@ jobs:
           # pre-commit run --hook-stage manual gitlint-ci
           pre-commit run --all-files
 
-      - name: Set up sccache cache
+      - name: Set up sccache
         uses: mozilla-actions/sccache-action@v0.0.6
+
+      - name: Restore sccache cache
+        id: cached-sccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/sccache/
+          key: ${{ runner.os }}-sccache-{{ github.ref_name }}
+          restore-keys: ${{ runner.os }}-sccache-
 
       - name: Install Nautilus CLI and run init postgres
         run: |
@@ -135,16 +143,12 @@ jobs:
           POSTGRES_USERNAME: postgres
           POSTGRES_PASSWORD: pass
           POSTGRES_DATABASE: nautilus
-          SCCACHE_GHA_ENABLED: "true"
           RUSTC_WRAPPER: "sccache"
-          CARGO_INCREMENTAL: 0
+          SCCACHE_DIRECT: true
 
       - name: Run sccache stat for check
         shell: bash
         run: ${SCCACHE_PATH} --show-stats
-
-      - name: Set up sccache cache
-        uses: mozilla-actions/sccache-action@v0.0.6
 
       - name: Run nautilus_core cargo tests (Linux)
         run: |
@@ -157,25 +161,20 @@ jobs:
           fi
           make cargo-test
         env:
-          SCCACHE_GHA_ENABLED: "true"
           RUSTC_WRAPPER: "sccache"
-          CARGO_INCREMENTAL: 0
+          SCCACHE_DIRECT: true
 
       - name: Run sccache stat for check
         shell: bash
         run: ${SCCACHE_PATH} --show-stats
-
-      - name: Set up sccache cache
-        uses: mozilla-actions/sccache-action@v0.0.6
 
       - name: Run tests (Linux)
         run: |
           make pytest
           make test-examples
         env:
-          SCCACHE_GHA_ENABLED: "true"
           RUSTC_WRAPPER: "sccache"
-          CARGO_INCREMENTAL: 0
+          SCCACHE_DIRECT: true
 
       - name: Run sccache stat for check
         shell: bash

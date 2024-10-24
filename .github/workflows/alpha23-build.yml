@@ -12,13 +12,13 @@ jobs:
       fail-fast: false
       matrix:
         arch: [x64]
-        os: [ubuntu-latest]
         python-version: ["3.11"]
     defaults:
       run:
         shell: bash
     name: build - Python ${{ matrix.python-version }} (${{ matrix.arch }} ${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    #runs-on: ${{ matrix.os }}
+    runs-on: gha-runner-scale-set
     env:
       BUILD_MODE: release
       RUST_BACKTRACE: 1
@@ -49,6 +49,11 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.S3_ROLE_ARN }}
+          aws-region: 'ap-northeast-1'
 
       - name: Get Rust version from rust-toolchain.toml
         id: rust-version
@@ -89,14 +94,15 @@ jobs:
 
       - name: Set up cached pre-commit
         id: cached-pre-commit
-        uses: actions/cache@v4
+        uses: whywaita/actions-cache-s3@v2
         with:
           path: ~/.cache/pre-commit
-          key: ${{ runner.os }}-${{ env.PYTHON_VERSION }}-pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+          key: ${{ github.repository }}-${{ runner.os }}-${{ env.PYTHON_VERSION }}-pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+          aws-s3-bucket: ${{ secrets.S3_BUCKET_CACHE }}
 
       - name: Set up cached cargo
         id: cached-cargo
-        uses: actions/cache@v4
+        uses: whywaita/actions-cache-s3@v2
         with:
           path: |
             ~/.cargo/bin/
@@ -104,18 +110,20 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+          key: ${{ github.repository }}-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ github.repository }}-${{ runner.os }}-cargo-
+          aws-s3-bucket: ${{ secrets.S3_BUCKET_CACHE }}
 
       - name: Set poetry cache-dir
         run: echo "POETRY_CACHE_DIR=$(poetry config cache-dir)" >> $GITHUB_ENV
 
       - name: Poetry cache
         id: cached-poetry
-        uses: actions/cache@v4
+        uses: whywaita/actions-cache-s3@v2
         with:
           path: ${{ env.POETRY_CACHE_DIR }}
-          key: ${{ runner.os }}-${{ env.PYTHON_VERSION }}-poetry-${{ hashFiles('**/poetry.lock') }}
+          key: ${{ github.repository }}-${{ runner.os }}-${{ env.PYTHON_VERSION }}-poetry-${{ hashFiles('**/poetry.lock') }}
+          aws-s3-bucket: ${{ secrets.S3_BUCKET_CACHE }}
 
       - name: Run pre-commit
         run: |
@@ -127,11 +135,12 @@ jobs:
 
       - name: Restore sccache cache
         id: cached-sccache
-        uses: actions/cache@v4
+        uses: whywaita/actions-cache-s3@v2
         with:
           path: ~/.cache/sccache/
-          key: ${{ runner.os }}-sccache-${{ github.ref_name }}
-          restore-keys: ${{ runner.os }}-sccache-
+          key: ${{ github.repository }}-${{ runner.os }}-sccache-${{ github.ref_name }}
+          restore-keys: ${{ github.repository }}-${{ runner.os }}-sccache-
+          aws-s3-bucket: ${{ secrets.S3_BUCKET_CACHE }}
 
       - name: Install Nautilus CLI and run init postgres
         run: |
